@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StatusPedido {
+  RASCUNHO
+  AGUARDANDO_PAGAMENTO
+  NA_FILA
+  GERANDO
+  CONCLUIDO
+  FALHOU
+  CANCELADO
+}
+
+enum StatusFoto {
+  PENDENTE
+  GERANDO
+  PRONTA
+  FALHOU
+}
+
+enum StatusPagamento {
+  PENDENTE
+  PAGO
+  EXPIRADO
+  CANCELADO
+  ESTORNADO
+}
+
+model Cliente {
+  id        Int      @id @default(autoincrement())
+  nome      String
+  email     String   @unique
+  whatsapp  String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  pedidos Pedido[]
+
+  @@map("clientes")
+}
+
+model Pacote {
+  id                Int      @id @default(autoincrement())
+  nome              String   @unique
+  preco             Decimal  @db.Decimal(10, 2)
+  quantidadeFotos   Int      @map("quantidade_fotos")
+  quantidadeEstilos Int?     @map("quantidade_estilos")
+  prioridade        Boolean  @default(false)
+  ativo             Boolean  @default(true)
+  ordem             Int      @default(0)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  pedidos Pedido[]
+
+  @@map("pacotes")
+}
+
+model Estilo {
+  id        Int      @id @default(autoincrement())
+  slug      String   @unique
+  nome      String
+  descricao String?
+  prompt    String   @db.Text
+  ativo     Boolean  @default(true)
+  ordem     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  pedidos PedidoEstilo[]
+  fotos   FotoGerada[]
+
+  @@map("estilos")
+}
+
+model Pedido {
+  id                String       @id @default(uuid()) @db.Uuid
+  clienteId         Int          @map("cliente_id")
+  pacoteId          Int          @map("pacote_id")
+  status            StatusPedido @default(RASCUNHO)
+  valor             Decimal      @db.Decimal(10, 2)
+  termosAceitosEm   DateTime?    @map("termos_aceitos_em")
+  concluidoEm       DateTime?    @map("concluido_em")
+  selfiesApagadasEm DateTime?    @map("selfies_apagadas_em")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+
+  cliente    Cliente        @relation(fields: [clienteId], references: [id])
+  pacote     Pacote         @relation(fields: [pacoteId], references: [id])
+  estilos    PedidoEstilo[]
+  selfies    Selfie[]
+  fotos      FotoGerada[]
+  pagamentos Pagamento[]
+
+  @@index([status])
+  @@map("pedidos")
+}
+
+model PedidoEstilo {
+  pedidoId String @map("pedido_id") @db.Uuid
+  estiloId Int    @map("estilo_id")
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  estilo Estilo @relation(fields: [estiloId], references: [id])
+
+  @@id([pedidoId, estiloId])
+  @@map("pedido_estilos")
+}
+
+model Selfie {
+  id           Int      @id @default(autoincrement())
+  pedidoId     String   @map("pedido_id") @db.Uuid
+  arquivo      String
+  nomeOriginal String?  @map("nome_original")
+  hash         String
+  larguraPx    Int      @map("largura_px")
+  alturaPx     Int      @map("altura_px")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  @@unique([pedidoId, hash])
+  @@map("selfies")
+}
+
+model FotoGerada {
+  id         Int        @id @default(autoincrement())
+  pedidoId   String     @map("pedido_id") @db.Uuid
+  estiloId   Int        @map("estilo_id")
+  status     StatusFoto @default(PENDENTE)
+  arquivo    String?
+  tentativas Int        @default(0)
+  erro       String?    @db.Text
+  custo      Decimal?   @db.Decimal(10, 4)
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  estilo Estilo @relation(fields: [estiloId], references: [id])
+
+  @@index([status])
+  @@map("fotos_geradas")
+}
+
+model Pagamento {
+  id            Int             @id @default(autoincrement())
+  pedidoId      String          @map("pedido_id") @db.Uuid
+  gateway       String
+  idExterno     String          @map("id_externo")
+  status        StatusPagamento @default(PENDENTE)
+  valor         Decimal         @db.Decimal(10, 2)
+  pixCopiaECola String?         @map("pix_copia_e_cola") @db.Text
+  expiraEm      DateTime?       @map("expira_em")
+  pagoEm        DateTime?       @map("pago_em")
+  payload       Json?
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id])
+
+  @@unique([gateway, idExterno])
+  @@map("pagamentos")
+}

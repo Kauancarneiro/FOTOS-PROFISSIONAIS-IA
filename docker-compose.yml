@@ -1,0 +1,80 @@
+name: fotos-profissionais-ia
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: fotosia_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fotosia
+      POSTGRES_PASSWORD: fotosia123
+      POSTGRES_DB: fotos_ia
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    ports:
+      - '5434:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fotosia -d fotos_ia"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: fotosia_backend
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - test -f src/server.ts || { echo 'Pasta do projeto ainda não montada, tentando de novo'; sleep 5; exit 1; }; pnpm prisma generate && pnpm prisma migrate deploy && pnpm dev
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://fotosia:fotosia123@postgres:5432/fotos_ia?schema=public
+      TRUST_PROXY: '2'
+    ports:
+      - '3003:3001'
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    container_name: fotosia_frontend
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - test -f index.html || { echo 'Pasta do projeto ainda não montada, tentando de novo'; sleep 5; exit 1; }; exec pnpm exec vite --host 0.0.0.0
+    ports:
+      - '5175:5173'
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - backend
+
+  ngrok:
+    image: ngrok/ngrok:3-alpine
+    container_name: fotosia_ngrok
+    restart: unless-stopped
+    profiles: ['ngrok']
+    command: ['http', 'frontend:5173', '--log', 'stdout']
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+    ports:
+      - '127.0.0.1:4042:4040'
+    depends_on:
+      - frontend
+
+volumes:
+  postgres_data:
+  backend_node_modules:
+  frontend_node_modules:
+  uploads_data:
